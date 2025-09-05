@@ -6,6 +6,7 @@ from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import CommandHandler, MessageHandler, ContextTypes, filters, CallbackQueryHandler
 from telegram import Update
 from telegram.ext import ApplicationBuilder
+from aiohttp import web
 
 BOT_USERNAME = os.environ.get('BOT_USERNAME', 'PandaStoreSwitchBot')
 PAYPAL_BUSINESS_EMAIL = os.environ.get('PAYPAL_BUSINESS_EMAIL')
@@ -310,15 +311,37 @@ async def pago_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text('Este bot es solo para recibir información. No puedes enviar mensajes al canal.')
         
+WEBHOOK_PATH = f"/webhook/{TELEGRAM_BOT_TOKEN}"
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL")  # Debes definir esto en Render, ejemplo: https://tu-servicio.onrender.com
+
+# Mueve la creación de la app de Telegram aquí para que sea global
+app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+app.add_handler(CommandHandler('start', start))
+app.add_handler(CallbackQueryHandler(pago_callback))
+app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), reenviar_al_canal))
+
+async def webhook_handler(request):
+    data = await request.json()
+    update = Update.de_json(data, app.bot)
+    await app.process_update(update)
+    return web.Response()
+
 if __name__ == '__main__':
-    app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
-    app.add_handler(CommandHandler('start', start))
-    app.add_handler(CallbackQueryHandler(pago_callback))
-    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), reenviar_al_canal))
-    print('Bot iniciado. Presiona Ctrl+C para detener.')
-    app.run_polling()
-    print('Bot iniciado. Presiona Ctrl+C para detener.')
-    app.run_polling()
+    import logging
+    logging.basicConfig(level=logging.INFO)
+
+    port = int(os.environ.get('PORT', 8080))
+    async def on_startup(web_app):
+        await app.bot.set_webhook(url=WEBHOOK_URL + WEBHOOK_PATH)
+    async def on_shutdown(web_app):
+        await app.bot.delete_webhook()
+
+    web_app = web.Application()
+    web_app.router.add_post(WEBHOOK_PATH, webhook_handler)
+    web_app.on_startup.append(on_startup)
+    web_app.on_shutdown.append(on_shutdown)
+
+    web.run_app(web_app, port=port)
 
 # En la función reenviar_al_canal, el cliente (usuario final) NO recibe ningún mensaje automáticamente cuando el admin publica un pack.
 # Solo el canal recibe el mensaje con el botón "Comprar".
