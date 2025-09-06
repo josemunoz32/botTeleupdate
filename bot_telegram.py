@@ -138,7 +138,7 @@ def procesar_mensaje(mensaje):
         return mensaje_modificado
 
 # -------------------------
-# Función para generar teclado de compra
+# Funciones para teclados
 # -------------------------
 def teclado_metodos_pago(identificador):
     return InlineKeyboardMarkup([
