@@ -252,34 +252,14 @@ async def postpago(request):
 # -------------------------
 # Main
 # -------------------------
-async def main():
-    # Crear app de Telegram
+def main():
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler('start', start))
-    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), reenviar_al_canal))
     app.add_handler(CallbackQueryHandler(pago_callback))
-
-    # Guardar bot en app para endpoints
-    web_app = web.Application()
-    web_app['bot'] = app.bot
-    web_app.router.add_get("/healthcheck", healthcheck)
-    web_app.router.add_get("/postpago/{identificador}", postpago)
-
-    # Iniciar polling en background
-    asyncio.create_task(app.run_polling())
-
-    # Iniciar servidor aiohttp
-    port = int(os.environ.get('PORT', 10000))
-    runner = web.AppRunner(web_app)
-    await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
-
-    logging.info(f"🚀 Bot y servidor corriendo en puerto {port}")
-
-    # Mantener loop vivo
-    while True:
-        await asyncio.sleep(3600)
+    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), reenviar_al_canal))
+    logging.info("🚀 Bot iniciado con polling.")
+    app.run_polling()  # <-- aquí no usamos asyncio.run()
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    main()
+
