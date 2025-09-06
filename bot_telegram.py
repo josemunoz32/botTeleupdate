@@ -140,7 +140,24 @@ def procesar_mensaje(mensaje):
 # Handlers del bot
 # -------------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("✅ El bot está activo y funcionando correctamente en Render.")
+    # Detectar si hay parámetro /start buy_xxx
+    args = context.args
+    if args and len(args) > 0 and args[0].startswith("buy_"):
+        identificador = args[0][len("buy_"):]
+        producto = obtener_producto(identificador)
+        if producto:
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton('💳 Pagar con PayPal', callback_data=f'internacional_{identificador}')],
+                [InlineKeyboardButton('💵 Pagar con MercadoPago', callback_data=f'nacional_{identificador}')]
+            ])
+            await update.message.reply_text(
+                f"Has seleccionado el producto {identificador}.\n\nElige un método de pago:",
+                reply_markup=keyboard
+            )
+        else:
+            await update.message.reply_text("❌ Producto no encontrado o expirado.")
+    else:
+        await update.message.reply_text("✅ El bot está activo y funcionando correctamente en Render.")
 
 async def reenviar_al_canal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
@@ -173,11 +190,10 @@ async def reenviar_al_canal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         precio_usdt = precio_usd + 25
         guardar_producto(identificador, texto_modificado, tipo, precio_clp, precio_usdt)
 
-        # Cambia el botón para usar callback_data en vez de url
+        # Botón con URL para abrir el bot con parámetro
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton('🛒 Comprar', callback_data=f'comprar_{identificador}')]
+            [InlineKeyboardButton('🛒 Comprar', url=f"https://t.me/{BOT_USERNAME}?start=buy_{identificador}")]
         ])
-        await asyncio.sleep(1)
         await context.bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=texto_modificado, parse_mode='HTML', reply_markup=keyboard)
         await update.message.reply_text('Mensaje enviado al canal.')
 
@@ -299,5 +315,7 @@ async def main():
 # -------------------------
 # Entry point
 # -------------------------
+if __name__ == '__main__':
+    asyncio.run(main())
 if __name__ == '__main__':
     asyncio.run(main())
