@@ -183,45 +183,61 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def reenviar_al_canal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
-    if user_id in ADMIN_IDS:
-        texto_modificado = procesar_mensaje(update.message.text)
-        if not texto_modificado:
-            await update.message.reply_text('El mensaje no cumple con el formato requerido. No se envió al canal.')
-            return
+    if user_id not in ADMIN_IDS:
+        await update.message.reply_text("❌ Solo administradores pueden publicar packs.")
+        return
 
-        lineas = update.message.text.strip().split('\n')
-        if any('Nickname' in l for l in lineas):
-            identificador = ''
-            for linea in lineas:
-                if linea.startswith('Nickname'):
-                    identificador = linea.split(':',1)[1].strip()
-                    break
-            tipo = 'cuenta'
-        else:
-            identificador = lineas[0].strip()
-            tipo = 'pack'
+    texto_modificado = procesar_mensaje(update.message.text)
+    if not texto_modificado:
+        await update.message.reply_text('❌ El mensaje no cumple con el formato requerido.')
+        return
 
-        if tipo == 'cuenta':
-            m = re.search(r'====PRICE\s*([0-9]+)', update.message.text)
-            precio_usd = int(m.group(1)) if m else 0
-        else:
-            m = re.search(r'Price\s*:\s*([0-9]+)', update.message.text)
-            precio_usd = int(m.group(1)) if m else 0
+    # Determinar tipo e identificador
+    lineas = update.message.text.strip().split('\n')
+    if any('Nickname' in l for l in lineas):
+        identificador = ''
+        for linea in lineas:
+            if linea.startswith('Nickname'):
+                identificador = linea.split(':',1)[1].strip()
+                break
+        tipo = 'cuenta'
+    else:
+        identificador = lineas[0].strip()
+        tipo = 'pack'
 
-        precio_clp = precio_usd * 1000 + 20000
-        precio_usdt = precio_usd + 25
-        guardar_producto(identificador, texto_modificado, tipo, precio_clp, precio_usdt)
+    # Obtener precio
+    precio_usd = 0
+    if tipo == 'cuenta':
+        m = re.search(r'====PRICE\s*([0-9]+)', update.message.text)
+        if m: precio_usd = int(m.group(1))
+    else:
+        m = re.search(r'Price\s*:\s*([0-9]+)', update.message.text)
+        if m: precio_usd = int(m.group(1))
 
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton('🛒 Comprar', callback_data=f'comprar_{identificador}')]
-        ])
+    precio_clp = precio_usd * 1000 + 20000
+    precio_usdt = precio_usd + 25
+
+    # Guardar producto en cache
+    guardar_producto(identificador, texto_modificado, tipo, precio_clp, precio_usdt)
+
+    # Crear botón de compra
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton('🛒 Comprar', callback_data=f'comprar_{identificador}')]
+    ])
+
+    # Publicar en el canal
+    try:
         await context.bot.send_message(
             chat_id=TELEGRAM_CHANNEL_ID,
             text=texto_modificado,
             parse_mode='HTML',
             reply_markup=keyboard
         )
-        await update.message.reply_text('Mensaje enviado al canal.')
+        await update.message.reply_text('✅ Mensaje publicado correctamente en el canal.')
+    except Exception as e:
+        await update.message.reply_text(f'❌ Error al publicar en el canal: {e}')
+        logging.error(f"Error publicando mensaje en canal: {e}")
+
 
 async def pago_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
