@@ -339,17 +339,19 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
 
     port = int(os.environ.get('PORT', 8080))
+
     async def on_startup(web_app):
         await app.initialize()
-        await app.start()
+        await app.start()  # <-- IMPORTANTE: en Render, llama a start() después de initialize()
         await app.bot.set_webhook(url=WEBHOOK_URL + WEBHOOK_PATH)
+
     async def on_shutdown(web_app):
         await app.bot.delete_webhook()
         # No apagues la app de Telegram para que el proceso siga activo
 
     web_app = web.Application()
     web_app.router.add_post(WEBHOOK_PATH, webhook_handler)
-    web_app.router.add_get("/", healthcheck)  # <-- Ruta para UptimeRobot o cualquier monitor HTTP
+    web_app.router.add_get("/", healthcheck)
     web_app.on_startup.append(on_startup)
     web_app.on_shutdown.append(on_shutdown)
 
