@@ -330,6 +330,10 @@ async def webhook_handler(request):
         logging.exception("Error en webhook_handler")
     return web.Response()
 
+# Puedes agregar una ruta HTTP simple para que servicios como UptimeRobot hagan ping y mantengan el bot "vivo"
+async def healthcheck(request):
+    return web.Response(text="OK")
+
 if __name__ == '__main__':
     import logging
     logging.basicConfig(level=logging.INFO)
@@ -337,7 +341,7 @@ if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
     async def on_startup(web_app):
         await app.initialize()
-        await app.start()  # Mantiene el bot activo y listo para recibir webhooks
+        await app.start()
         await app.bot.set_webhook(url=WEBHOOK_URL + WEBHOOK_PATH)
     async def on_shutdown(web_app):
         await app.bot.delete_webhook()
@@ -345,6 +349,7 @@ if __name__ == '__main__':
 
     web_app = web.Application()
     web_app.router.add_post(WEBHOOK_PATH, webhook_handler)
+    web_app.router.add_get("/", healthcheck)  # <-- Ruta para UptimeRobot o cualquier monitor HTTP
     web_app.on_startup.append(on_startup)
     web_app.on_shutdown.append(on_shutdown)
 
