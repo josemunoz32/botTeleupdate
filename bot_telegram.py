@@ -188,6 +188,23 @@ async def pago_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not data:
         return
 
+    # Manejar el callback de "comprar"
+    if data.startswith('comprar_'):
+        identificador = data[len('comprar_'):]
+        producto = obtener_producto(identificador)
+        if producto:
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton('💳 Pagar con PayPal', callback_data=f'internacional_{identificador}')],
+                [InlineKeyboardButton('💵 Pagar con MercadoPago', callback_data=f'nacional_{identificador}')]
+            ])
+            await query.edit_message_text(
+                f"Has seleccionado el producto {identificador}.\n\nElige un método de pago:",
+                reply_markup=keyboard
+            )
+        else:
+            await query.edit_message_text("❌ Producto no encontrado o expirado.")
+        return
+
     producto = None
     if data.startswith('nacional_'):
         identificador = data[len('nacional_'):]
