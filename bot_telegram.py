@@ -140,24 +140,57 @@ def procesar_mensaje(mensaje):
 # Handlers del bot
 # -------------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Detectar si hay parámetro /start buy_xxx
     args = context.args
-    if args and len(args) > 0 and args[0].startswith("buy_"):
-        identificador = args[0][len("buy_"):]
-        producto = obtener_producto(identificador)
-        if producto:
-            keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton('💳 Pagar con PayPal', callback_data=f'internacional_{identificador}')],
-                [InlineKeyboardButton('💵 Pagar con MercadoPago', callback_data=f'nacional_{identificador}')]
-            ])
-            await update.message.reply_text(
-                f"Has seleccionado el producto {identificador}.\n\nElige un método de pago:",
-                reply_markup=keyboard
-            )
-        else:
-            await update.message.reply_text("❌ Producto no encontrado o expirado.")
-    else:
-        await update.message.reply_text("✅ El bot está activo y funcionando correctamente en Render.")
+    if args and len(args) > 0:
+        arg = args[0]
+        # Si viene desde el canal con buy_...
+        if arg.startswith('buy_'):
+            identificador = arg[len('buy_'):]
+            producto = obtener_producto(identificador)
+            if producto:
+                # Mostrar mensaje del producto en chat privado
+                await update.message.reply_text(
+                    f"{producto['mensaje']}",
+                    parse_mode='HTML'
+                )
+                # Mostrar botones de pago
+                keyboard = InlineKeyboardMarkup([
+                    [InlineKeyboardButton('💳 Pagar con PayPal', callback_data=f'internacional_{identificador}')],
+                    [InlineKeyboardButton('💵 Pagar con MercadoPago', callback_data=f'nacional_{identificador}')]
+                ])
+                await update.message.reply_text(
+                    "Elige un método de pago:",
+                    reply_markup=keyboard
+                )
+            else:
+                await update.message.reply_text("❌ Producto no encontrado o expirado.")
+            return
+        elif arg.startswith('postpago_'):
+            identificador = arg[len('postpago_'):]
+            producto = obtener_producto(identificador)
+            if producto:
+                pasos_url = "https://juegosnintendoswitch.com/pages/instalacion"
+                contactos = (
+                    "📬 Contactos:\n"
+                    "Telegram: @NintendoChile2\n"
+                    "WhatsApp: +56 9 1234 5678\n"
+                    "Instagram: @NintendoChile2"
+                )
+                await update.message.reply_text(
+                    f"✅ Pago recibido por {identificador}.\n\n"
+                    f"🔹 Pasos de instalación: {pasos_url}\n\n"
+                    f"{contactos}",
+                    parse_mode='HTML'
+                )
+                # Notificar al admin
+                for admin_id in ADMIN_IDS:
+                    await context.bot.send_message(
+                        chat_id=admin_id,
+                        text=f"✅ El pack {identificador} ha sido comprado por @{update.message.from_user.username or update.message.from_user.full_name}"
+                    )
+            return
+
+    await update.message.reply_text("✅ El bot está activo y funcionando correctamente.")
 
 async def reenviar_al_canal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
@@ -190,7 +223,7 @@ async def reenviar_al_canal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         precio_usdt = precio_usd + 25
         guardar_producto(identificador, texto_modificado, tipo, precio_clp, precio_usdt)
 
-        # Botón con URL para abrir el bot con parámetro
+        # Botón que abre chat privado con el bot
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton('🛒 Comprar', url=f"https://t.me/{BOT_USERNAME}?start=buy_{identificador}")]
         ])
@@ -204,24 +237,6 @@ async def pago_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not data:
         return
 
-    # Manejar el callback de "comprar"
-    if data.startswith('comprar_'):
-        identificador = data[len('comprar_'):]
-        producto = obtener_producto(identificador)
-        if producto:
-            keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton('💳 Pagar con PayPal', callback_data=f'internacional_{identificador}')],
-                [InlineKeyboardButton('💵 Pagar con MercadoPago', callback_data=f'nacional_{identificador}')]
-            ])
-            await query.edit_message_text(
-                f"Has seleccionado el producto {identificador}.\n\nElige un método de pago:",
-                reply_markup=keyboard
-            )
-        else:
-            await query.edit_message_text("❌ Producto no encontrado o expirado.")
-        return
-
-    producto = None
     if data.startswith('nacional_'):
         identificador = data[len('nacional_'):]
         producto = obtener_producto(identificador)
@@ -267,21 +282,6 @@ async def pago_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def healthcheck(request):
     return web.Response(text="OK")
 
-async def postpago(request):
-    identificador = request.match_info.get('identificador')
-    producto = obtener_producto(identificador)
-    if producto:
-        mensaje_instalacion = (
-            f"✅ Pago confirmado para {identificador}.\n\n"
-            f"📥 Pasos de instalación: <a href='https://juegosnintendoswitch.com/pages/instalacion'>Haz clic aquí</a>\n\n"
-            f"📞 Contacto:\n"
-            f"Telegram: @NintendoChile2\n"
-            f"WhatsApp: +56 9 1234 5678\n"
-            f"Instagram: @NintendoChile2"
-        )
-        bot = request.app['bot']
-        await bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=mensaje_instalacion, parse_mode='HTML')
-    return web.Response(text="OK")
 # -------------------------
 # Main
 # -------------------------
@@ -302,7 +302,7 @@ async def main():
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
 
-    # Inicializar y arrancar el bot en modo polling (no bloqueante)
+    # Inicializar y arrancar el bot en modo polling
     await app.initialize()
     await app.start()
     await app.updater.start_polling()
@@ -315,7 +315,5 @@ async def main():
 # -------------------------
 # Entry point
 # -------------------------
-if __name__ == '__main__':
-    asyncio.run(main())
 if __name__ == '__main__':
     asyncio.run(main())
