@@ -341,7 +341,7 @@ if __name__ == '__main__':
     async def on_shutdown(web_app):
         await app.bot.delete_webhook()
         await app.shutdown()    # <-- Limpia la aplicación de Telegram
-        await app.stop()        # <-- Detiene la aplicación de Telegram
+        # await app.stop()      # <-- Elimina esta línea, no es necesaria ni segura en modo webhook
 
     web_app = web.Application()
     web_app.router.add_post(WEBHOOK_PATH, webhook_handler)
