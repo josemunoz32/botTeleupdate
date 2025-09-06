@@ -173,9 +173,9 @@ async def reenviar_al_canal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         precio_usdt = precio_usd + 25
         guardar_producto(identificador, texto_modificado, tipo, precio_clp, precio_usdt)
 
-        url_boton = f"https://t.me/{BOT_USERNAME}?start=buy_{identificador}"
+        # Cambia el botón para usar callback_data en vez de url
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton('🛒 Comprar', url=url_boton)]
+            [InlineKeyboardButton('🛒 Comprar', callback_data=f'comprar_{identificador}')]
         ])
         await asyncio.sleep(1)
         await context.bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=texto_modificado, parse_mode='HTML', reply_markup=keyboard)
