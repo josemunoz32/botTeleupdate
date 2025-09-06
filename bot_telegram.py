@@ -302,9 +302,16 @@ async def main():
         await asyncio.sleep(3600)
 
 if __name__ == '__main__':
+    import asyncio
+
     try:
-        asyncio.run(main())
-    except RuntimeError:
-        # Evita error "event loop already running" en Render
         loop = asyncio.get_event_loop()
-        loop.run_until_complete(main())
+    except RuntimeError:
+        # Crear loop si no existe
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+    # Ejecutar main() como tarea, no con asyncio.run()
+    loop.create_task(main())
+    loop.run_forever()
+
