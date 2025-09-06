@@ -192,6 +192,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("✅ El bot está activo y funcionando correctamente.")
 
+import asyncio
+
 async def reenviar_al_canal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     if user_id in ADMIN_IDS:
@@ -227,8 +229,17 @@ async def reenviar_al_canal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton('🛒 Comprar', url=f"https://t.me/{BOT_USERNAME}?start=buy_{identificador}")]
         ])
-        await context.bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=texto_modificado, parse_mode='HTML', reply_markup=keyboard)
+
+        # Publicar con retraso para evitar flood
+        await context.bot.send_message(
+            chat_id=TELEGRAM_CHANNEL_ID,
+            text=texto_modificado,
+            parse_mode='HTML',
+            reply_markup=keyboard
+        )
+        await asyncio.sleep(2)  # 🔹 Espera 2 segundos antes de publicar el siguiente pack
         await update.message.reply_text('Mensaje enviado al canal.')
+
 
 async def pago_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
