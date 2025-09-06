@@ -15,7 +15,7 @@ from telegram.ext import (
 from aiohttp import web
 
 # -------------------------
-# Configura logging para consola
+# Configura logging
 # -------------------------
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -36,6 +36,7 @@ ADMIN_IDS = [int(i) for i in os.environ.get('ADMIN_IDS', '5158777962').split(','
 # Cache de productos
 # -------------------------
 PRODUCTOS_CACHE = {}
+CANAL_MESSAGES = {}  # Para rastrear mensajes enviados al canal
 
 def guardar_producto(identificador, mensaje, tipo, precio_clp, precio_usdt):
     PRODUCTOS_CACHE[identificador] = {
@@ -137,60 +138,36 @@ def procesar_mensaje(mensaje):
         return mensaje_modificado
 
 # -------------------------
+# Función para generar teclado de compra
+# -------------------------
+def teclado_metodos_pago(identificador):
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton('💳 Pagar con PayPal', callback_data=f'internacional_{identificador}')],
+        [InlineKeyboardButton('💵 Pagar con MercadoPago', callback_data=f'nacional_{identificador}')]
+    ])
+
+def teclado_volver(identificador):
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton('⬅️ Volver', callback_data=f'comprar_{identificador}')]
+    ])
+
+# -------------------------
 # Handlers del bot
 # -------------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
-    if args and len(args) > 0:
-        arg = args[0]
-        # Si viene desde el canal con buy_...
-        if arg.startswith('buy_'):
-            identificador = arg[len('buy_'):]
-            producto = obtener_producto(identificador)
-            if producto:
-                # Mostrar mensaje del producto en chat privado
-                await update.message.reply_text(
-                    f"{producto['mensaje']}",
-                    parse_mode='HTML'
-                )
-                # Mostrar botones de pago
-                keyboard = InlineKeyboardMarkup([
-                    [InlineKeyboardButton('💳 Pagar con PayPal', callback_data=f'internacional_{identificador}')],
-                    [InlineKeyboardButton('💵 Pagar con MercadoPago', callback_data=f'nacional_{identificador}')]
-                ])
-                await update.message.reply_text(
-                    "Elige un método de pago:",
-                    reply_markup=keyboard
-                )
-            else:
-                await update.message.reply_text("❌ Producto no encontrado o expirado.")
-            return
-        elif arg.startswith('postpago_'):
-            identificador = arg[len('postpago_'):]
-            producto = obtener_producto(identificador)
-            if producto:
-                pasos_url = "https://juegosnintendoswitch.com/pages/instalacion"
-                contactos = (
-                    "📬 Contactos:\n"
-                    "Telegram: @NintendoChile2\n"
-                    "WhatsApp: +56 9 1234 5678\n"
-                    "Instagram: @NintendoChile2"
-                )
-                await update.message.reply_text(
-                    f"✅ Pago recibido por {identificador}.\n\n"
-                    f"🔹 Pasos de instalación: {pasos_url}\n\n"
-                    f"{contactos}",
-                    parse_mode='HTML'
-                )
-                # Notificar al admin
-                for admin_id in ADMIN_IDS:
-                    await context.bot.send_message(
-                        chat_id=admin_id,
-                        text=f"✅ El pack {identificador} ha sido comprado por @{update.message.from_user.username or update.message.from_user.full_name}"
-                    )
-            return
-
-    await update.message.reply_text("✅ El bot está activo y funcionando correctamente.")
+    if args and len(args) > 0 and args[0].startswith("buy_"):
+        identificador = args[0][len("buy_"):]
+        producto = obtener_producto(identificador)
+        if producto:
+            await update.message.reply_text(
+                f"Has seleccionado el producto {identificador}.\n\nElige un método de pago:",
+                reply_markup=teclado_metodos_pago(identificador)
+            )
+        else:
+            await update.message.reply_text("❌ Producto no encontrado o expirado.")
+    else:
+        await update.message.reply_text("✅ El bot está activo y funcionando correctamente.")
 
 async def reenviar_al_canal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
@@ -223,11 +200,16 @@ async def reenviar_al_canal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         precio_usdt = precio_usd + 25
         guardar_producto(identificador, texto_modificado, tipo, precio_clp, precio_usdt)
 
-        # Botón que abre chat privado con el bot
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton('🛒 Comprar', url=f"https://t.me/{BOT_USERNAME}?start=buy_{identificador}")]
-        ])
-        await context.bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=texto_modificado, parse_mode='HTML', reply_markup=keyboard)
+        # Enviar al canal
+        mensaje_canal = await context.bot.send_message(
+            chat_id=TELEGRAM_CHANNEL_ID,
+            text=texto_modificado,
+            parse_mode='HTML',
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton('🛒 Comprar', callback_data=f'comprar_{identificador}')]
+            ])
+        )
+        CANAL_MESSAGES[identificador] = mensaje_canal.message_id
         await update.message.reply_text('Mensaje enviado al canal.')
 
 async def pago_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -237,78 +219,130 @@ async def pago_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not data:
         return
 
-    if data.startswith('nacional_'):
-        identificador = data[len('nacional_'):]
+    if data.startswith('comprar_'):
+        identificador = data[len('comprar_'):]
         producto = obtener_producto(identificador)
         if producto:
-            url = 'https://api.mercadopago.com/checkout/preferences'
-            headers = {'Authorization': f'Bearer {MERCADOPAGO_ACCESS_TOKEN}', 'Content-Type': 'application/json'}
-            data_mp = {
-                "items":[{"title": f"Nintendo Switch {identificador}","quantity":1,"currency_id":"CLP","unit_price": producto['precio_clp']}],
-                "payer": {"email":"comprador_test@test.com"},
-                "payment_methods":{"excluded_payment_types":[{"id":"ticket"}],"installments":1},
-                "back_urls":{"success":f"https://t.me/{BOT_USERNAME}?start=postpago_{identificador}",
-                             "failure":f"https://t.me/{BOT_USERNAME}?start=postpago_{identificador}",
-                             "pending":f"https://t.me/{BOT_USERNAME}?start=postpago_{identificador}"},
-                "auto_return":"approved"
-            }
-            try:
-                resp = requests.post(url, headers=headers, json=data_mp)
-                resp.raise_for_status()
-                mp_url = resp.json().get('init_point', 'https://www.mercadopago.cl')
-            except Exception:
-                mp_url = 'https://www.mercadopago.cl'
-            await query.edit_message_text(f"Para pagar con MercadoPago (CLP):\n\nMonto: ${producto['precio_clp']:,} CLP\n\n<a href='{mp_url}'>Pagar ahora</a>", parse_mode='HTML')
+            await query.edit_message_text(
+                f"Has seleccionado el producto {identificador}.\n\nElige un método de pago:",
+                reply_markup=teclado_metodos_pago(identificador)
+            )
+        return
+
+    elif data.startswith('nacional_'):
+        identificador = data[len('nacional_'):]
+        producto = obtener_producto(identificador)
+        if not producto:
+            await query.edit_message_text("❌ Producto no encontrado o expirado.")
+            return
+        url = 'https://api.mercadopago.com/checkout/preferences'
+        headers = {'Authorization': f'Bearer {MERCADOPAGO_ACCESS_TOKEN}', 'Content-Type': 'application/json'}
+        data_mp = {
+            "items":[{"title": f"Nintendo Switch {identificador}","quantity":1,"currency_id":"CLP","unit_price": producto['precio_clp']}],
+            "payer": {"email":"comprador_test@test.com"},
+            "payment_methods":{"excluded_payment_types":[{"id":"ticket"}],"installments":1},
+            "back_urls":{"success":f"https://t.me/{BOT_USERNAME}?start=postpago_{identificador}",
+                         "failure":f"https://t.me/{BOT_USERNAME}?start=postpago_{identificador}",
+                         "pending":f"https://t.me/{BOT_USERNAME}?start=postpago_{identificador}"},
+            "auto_return":"approved"
+        }
+        try:
+            resp = requests.post(url, headers=headers, json=data_mp)
+            resp.raise_for_status()
+            mp_url = resp.json().get('init_point', 'https://www.mercadopago.cl')
+        except Exception:
+            mp_url = 'https://www.mercadopago.cl'
+
+        await query.edit_message_text(
+            f"Para pagar con MercadoPago (CLP):\n\nMonto: ${producto['precio_clp']:,} CLP\n\n<a href='{mp_url}'>Pagar ahora</a>",
+            parse_mode='HTML',
+            reply_markup=teclado_volver(identificador)
+        )
 
     elif data.startswith('internacional_'):
         identificador = data[len('internacional_'):]
         producto = obtener_producto(identificador)
-        if producto:
-            monto_paypal = f"{producto['precio_usdt']:.2f}"
-            return_url = f"https://t.me/{BOT_USERNAME}?start=postpago_{identificador}"
-            paypal_url = (
-                f"https://www.paypal.com/cgi-bin/webscr?cmd=_xclick"
-                f"&business={PAYPAL_BUSINESS_EMAIL}"
-                f"&item_name=Nintendo+Switch+{identificador}"
-                f"&amount={monto_paypal}"
-                f"&currency_code=USD"
-                f"&return={return_url}"
-            )
-            await query.edit_message_text(f"Para pagar con PayPal (USD):\n\nMonto: ${monto_paypal} USD\n<a href='{paypal_url}'>Pagar ahora</a>", parse_mode='HTML')
+        if not producto:
+            await query.edit_message_text("❌ Producto no encontrado o expirado.")
+            return
+        monto_paypal = f"{producto['precio_usdt']:.2f}"
+        return_url = f"https://t.me/{BOT_USERNAME}?start=postpago_{identificador}"
+        paypal_url = (
+            f"https://www.paypal.com/cgi-bin/webscr?cmd=_xclick"
+            f"&business={PAYPAL_BUSINESS_EMAIL}"
+            f"&item_name=Nintendo+Switch+{identificador}"
+            f"&amount={monto_paypal}"
+            f"&currency_code=USD"
+            f"&return={return_url}"
+        )
+        await query.edit_message_text(
+            f"Para pagar con PayPal (USD):\n\nMonto: ${monto_paypal} USD\n<a href='{paypal_url}'>Pagar ahora</a>",
+            parse_mode='HTML',
+            reply_markup=teclado_volver(identificador)
+        )
 
 # -------------------------
-# Endpoints para UptimeRobot y postpago
+# Endpoints web
 # -------------------------
 async def healthcheck(request):
+    return web.Response(text="OK")
+
+async def postpago(request):
+    identificador = request.match_info.get('identificador')
+    producto = obtener_producto(identificador)
+    if producto:
+        # Enviar mensaje solo al cliente
+        bot = request.app['bot']
+        mensaje_instalacion = (
+            f"✅ Pago confirmado para {identificador}.\n\n"
+            f"📥 Pasos de instalación: <a href='https://juegosnintendoswitch.com/pages/instalacion'>Haz clic aquí</a>\n\n"
+            f"📞 Contacto:\n"
+            f"Telegram: @NintendoChile2\n"
+            f"WhatsApp: +56 9 1234 5678\n"
+            f"Instagram: @NintendoChile2"
+        )
+        chat_id_cliente = int(request.query.get('chat_id', 0))
+        if chat_id_cliente:
+            await bot.send_message(chat_id=chat_id_cliente, text=mensaje_instalacion, parse_mode='HTML')
+
+        # Borrar mensaje del canal
+        message_id = CANAL_MESSAGES.get(identificador)
+        if message_id:
+            try:
+                await bot.delete_message(chat_id=TELEGRAM_CHANNEL_ID, message_id=message_id)
+            except Exception as e:
+                logging.warning(f"No se pudo borrar mensaje del canal: {e}")
+
     return web.Response(text="OK")
 
 # -------------------------
 # Main
 # -------------------------
 async def main():
-    # Crear app de Telegram
+    # Crear app Telegram
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler('start', start))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), reenviar_al_canal))
     app.add_handler(CallbackQueryHandler(pago_callback))
 
-    # Servidor web aiohttp
+    # Servidor aiohttp
     web_app = web.Application()
     web_app['bot'] = app.bot
     web_app.router.add_get("/healthcheck", healthcheck)
+    web_app.router.add_get("/postpago/{identificador}", postpago)
+
     port = int(os.environ.get('PORT', 10000))
     runner = web.AppRunner(web_app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
 
-    # Inicializar y arrancar el bot en modo polling
+    # Iniciar polling de Telegram
     await app.initialize()
     await app.start()
     await app.updater.start_polling()
     logging.info(f"🚀 Bot y servidor corriendo en puerto {port}")
 
-    # Mantener el proceso vivo
     while True:
         await asyncio.sleep(3600)
 
