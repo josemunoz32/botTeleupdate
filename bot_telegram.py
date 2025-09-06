@@ -321,9 +321,13 @@ app.add_handler(CallbackQueryHandler(pago_callback))
 app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), reenviar_al_canal))
 
 async def webhook_handler(request):
-    data = await request.json()
-    update = Update.de_json(data, app.bot)
-    await app.process_update(update)
+    try:
+        data = await request.json()
+        update = Update.de_json(data, app.bot)
+        await app.process_update(update)
+    except Exception as e:
+        import logging
+        logging.exception("Error en webhook_handler")
     return web.Response()
 
 if __name__ == '__main__':
