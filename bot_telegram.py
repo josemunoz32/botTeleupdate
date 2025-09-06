@@ -336,9 +336,12 @@ if __name__ == '__main__':
 
     port = int(os.environ.get('PORT', 8080))
     async def on_startup(web_app):
+        await app.initialize()  # <-- Inicializa la aplicación de Telegram
         await app.bot.set_webhook(url=WEBHOOK_URL + WEBHOOK_PATH)
     async def on_shutdown(web_app):
         await app.bot.delete_webhook()
+        await app.shutdown()    # <-- Limpia la aplicación de Telegram
+        await app.stop()        # <-- Detiene la aplicación de Telegram
 
     web_app = web.Application()
     web_app.router.add_post(WEBHOOK_PATH, webhook_handler)
