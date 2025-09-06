@@ -140,7 +140,46 @@ def procesar_mensaje(mensaje):
 # Handlers del bot
 # -------------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("✅ El bot está activo y funcionando correctamente en Render.")
+    args = context.args
+    if args:
+        arg = args[0]
+        if arg.startswith('buy_'):
+            identificador = arg[len('buy_'):]
+            producto = obtener_producto(identificador)
+            if producto:
+                keyboard = InlineKeyboardMarkup([
+                    [InlineKeyboardButton('💳 Pagar con PayPal', callback_data=f'internacional_{identificador}')],
+                    [InlineKeyboardButton('💵 Pagar con MercadoPago', callback_data=f'nacional_{identificador}')]
+                ])
+                await update.message.reply_text(
+                    f"Has seleccionado el producto {identificador}.\n\nElige un método de pago:",
+                    reply_markup=keyboard
+                )
+        elif arg.startswith('postpago_'):
+            identificador = arg[len('postpago_'):]
+            producto = obtener_producto(identificador)
+            if producto:
+                pasos_url = "https://juegosnintendoswitch.com/pages/instalacion"
+                contactos = (
+                    "📬 Contactos:\n"
+                    "Telegram: @NintendoChile2\n"
+                    "WhatsApp: +56 9 1234 5678\n"
+                    "Instagram: @NintendoChile2"
+                )
+                await update.message.reply_text(
+                    f"✅ Pago recibido por {identificador}.\n\n"
+                    f"🔹 Pasos de instalación: {pasos_url}\n\n"
+                    f"{contactos}",
+                    parse_mode='HTML'
+                )
+                # Notificar al admin
+                for admin_id in ADMIN_IDS:
+                    await context.bot.send_message(
+                        chat_id=admin_id,
+                        text=f"✅ El pack {identificador} ha sido comprado por @{update.message.from_user.username or update.message.from_user.full_name}"
+                    )
+    else:
+        await update.message.reply_text("✅ El bot está activo y funcionando correctamente en Render.")
 
 async def reenviar_al_canal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
@@ -174,9 +213,7 @@ async def reenviar_al_canal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         guardar_producto(identificador, texto_modificado, tipo, precio_clp, precio_usdt)
 
         url_boton = f"https://t.me/{BOT_USERNAME}?start=buy_{identificador}"
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton('🛒 Comprar', url=url_boton)]
-        ])
+        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton('🛒 Comprar', url=url_boton)]])
         await asyncio.sleep(1)
         await context.bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=texto_modificado, parse_mode='HTML', reply_markup=keyboard)
         await update.message.reply_text('Mensaje enviado al canal.')
@@ -229,37 +266,45 @@ async def pago_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(f"Para pagar con PayPal (USD):\n\nMonto: ${monto_paypal} USD\n<a href='{paypal_url}'>Pagar ahora</a>", parse_mode='HTML')
 
 # -------------------------
-# Endpoints para UptimeRobot y postpago
+# Endpoints para UptimeRobot
 # -------------------------
 async def healthcheck(request):
     return web.Response(text="OK")
 
-async def postpago(request):
-    identificador = request.match_info.get('identificador')
-    producto = obtener_producto(identificador)
-    if producto:
-        mensaje_instalacion = (
-            f"✅ Pago confirmado para {identificador}.\n\n"
-            f"📥 Pasos de instalación: <a href='https://juegosnintendoswitch.com/pages/instalacion'>Haz clic aquí</a>\n\n"
-            f"📞 Contacto:\n"
-            f"Telegram: @NintendoChile2\n"
-            f"WhatsApp: +56 9 1234 5678\n"
-            f"Instagram: @NintendoChile2"
-        )
-        bot = request.app['bot']
-        await bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=mensaje_instalacion, parse_mode='HTML')
-    return web.Response(text="OK")
 # -------------------------
 # Main
 # -------------------------
-def main():
+async def main():
+    # Crear app de Telegram
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler('start', start))
-    app.add_handler(CallbackQueryHandler(pago_callback))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), reenviar_al_canal))
-    logging.info("🚀 Bot iniciado con polling.")
-    app.run_polling()  # <-- aquí no usamos asyncio.run()
+    app.add_handler(CallbackQueryHandler(pago_callback))
+
+    # Servidor web para UptimeRobot
+    web_app = web.Application()
+    web_app['bot'] = app.bot
+    web_app.router.add_get("/healthcheck", healthcheck)
+
+    # Iniciar servidor aiohttp en background
+    port = int(os.environ.get('PORT', 10000))
+    runner = web.AppRunner(web_app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+
+    # Iniciar polling de Telegram sin bloquear loop
+    asyncio.create_task(app.run_polling())
+
+    logging.info(f"🚀 Bot y servidor corriendo en puerto {port}")
+
+    while True:
+        await asyncio.sleep(3600)
 
 if __name__ == '__main__':
-    main()
-
+    try:
+        asyncio.run(main())
+    except RuntimeError:
+        # Evita error "event loop already running" en Render
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(main())
