@@ -292,11 +292,11 @@ async def pago_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         identificador = data[len('internacional_'):]
         producto = obtener_producto(identificador)
         if producto:
-            # Generar link de pago PayPal usando el email sandbox y monto con dos decimales
+            # Usa el entorno de producción de PayPal, no el sandbox
             monto_paypal = f"{producto['precio_usdt']:.2f}"
             return_url = f"https://t.me/{BOT_USERNAME}?start=postpago_{identificador}"
             paypal_url = (
-                f"https://www.sandbox.paypal.com/cgi-bin/webscr?cmd=_xclick"
+                f"https://www.paypal.com/cgi-bin/webscr?cmd=_xclick"
                 f"&business={PAYPAL_BUSINESS_EMAIL}"
                 f"&item_name=Nintendo+Switch+{identificador}"
                 f"&amount={monto_paypal}"
@@ -304,7 +304,7 @@ async def pago_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"&return={return_url}"
             )
             await query.edit_message_text(
-                f"Para pagar con PayPal (USDT):\n\nMonto: ${monto_paypal} USDT\n<a href='{paypal_url}'>Pagar ahora</a>",
+                f"Para pagar con PayPal (USD):\n\nMonto: ${monto_paypal} USD\n<a href='{paypal_url}'>Pagar ahora</a>",
                 parse_mode='HTML')
         else:
             await query.edit_message_text('Producto no encontrado o expirado.')
