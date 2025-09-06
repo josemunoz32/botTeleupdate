@@ -340,8 +340,7 @@ if __name__ == '__main__':
         await app.bot.set_webhook(url=WEBHOOK_URL + WEBHOOK_PATH)
     async def on_shutdown(web_app):
         await app.bot.delete_webhook()
-        await app.shutdown()    # <-- Limpia la aplicación de Telegram
-        # await app.stop()      # <-- Elimina esta línea, no es necesaria ni segura en modo webhook
+        # No llames a await app.shutdown() ni await app.stop() para mantener la app activa
 
     web_app = web.Application()
     web_app.router.add_post(WEBHOOK_PATH, webhook_handler)
@@ -375,4 +374,5 @@ if __name__ == '__main__':
 # - Usa variables de entorno para las claves.
 # - Considera cambiar ApplicationBuilder().token(...) por Application.builder().token(...).webhook(...) si usas webhooks.
 
+# Por defecto, tu código funcionará en Render si usas un servicio tipo "background worker" o "web service" con polling.
 # Por defecto, tu código funcionará en Render si usas un servicio tipo "background worker" o "web service" con polling.
