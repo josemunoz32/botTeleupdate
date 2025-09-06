@@ -15,7 +15,7 @@ from telegram.ext import (
 from aiohttp import web
 
 # -------------------------
-# Logging
+# Configura logging para consola
 # -------------------------
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -137,107 +137,49 @@ def procesar_mensaje(mensaje):
         return mensaje_modificado
 
 # -------------------------
-# Handlers
+# Handlers del bot
 # -------------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    args = context.args
-    if args:
-        arg = args[0]
-        if arg.startswith('buy_'):
-            identificador = arg[len('buy_'):]
-            producto = obtener_producto(identificador)
-            if producto:
-                keyboard = InlineKeyboardMarkup([
-                    [InlineKeyboardButton('💳 Pagar con PayPal', callback_data=f'internacional_{identificador}')],
-                    [InlineKeyboardButton('💵 Pagar con MercadoPago', callback_data=f'nacional_{identificador}')]
-                ])
-                await update.message.reply_text(
-                    f"Has seleccionado el producto {identificador}.\n\nElige un método de pago:",
-                    reply_markup=keyboard
-                )
-        elif arg.startswith('postpago_'):
-            identificador = arg[len('postpago_'):]
-            producto = obtener_producto(identificador)
-            if producto:
-                pasos_url = "https://juegosnintendoswitch.com/pages/instalacion"
-                contactos = (
-                    "📬 Contactos:\n"
-                    "Telegram: @NintendoChile2\n"
-                    "WhatsApp: +56 9 1234 5678\n"
-                    "Instagram: @NintendoChile2"
-                )
-                await update.message.reply_text(
-                    f"✅ Pago recibido por {identificador}.\n\n"
-                    f"🔹 Pasos de instalación: {pasos_url}\n\n"
-                    f"{contactos}",
-                    parse_mode='HTML'
-                )
-                # Notificar al admin
-                for admin_id in ADMIN_IDS:
-                    await context.bot.send_message(
-                        chat_id=admin_id,
-                        text=f"✅ El pack {identificador} ha sido comprado por @{update.message.from_user.username or update.message.from_user.full_name}"
-                    )
-    else:
-        await update.message.reply_text("✅ El bot está activo y funcionando correctamente en Render.")
+    await update.message.reply_text("✅ El bot está activo y funcionando correctamente en Render.")
 
 async def reenviar_al_canal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
-    if user_id not in ADMIN_IDS:
-        await update.message.reply_text("❌ Solo administradores pueden publicar packs.")
-        return
+    if user_id in ADMIN_IDS:
+        texto_modificado = procesar_mensaje(update.message.text)
+        if not texto_modificado:
+            await update.message.reply_text('El mensaje no cumple con el formato requerido. No se envió al canal.')
+            return
 
-    texto_modificado = procesar_mensaje(update.message.text)
-    if not texto_modificado:
-        await update.message.reply_text('❌ El mensaje no cumple con el formato requerido.')
-        return
+        lineas = update.message.text.strip().split('\n')
+        if any('Nickname' in l for l in lineas):
+            identificador = ''
+            for linea in lineas:
+                if linea.startswith('Nickname'):
+                    identificador = linea.split(':',1)[1].strip()
+                    break
+            tipo = 'cuenta'
+        else:
+            identificador = lineas[0].strip()
+            tipo = 'pack'
 
-    # Determinar tipo e identificador
-    lineas = update.message.text.strip().split('\n')
-    if any('Nickname' in l for l in lineas):
-        identificador = ''
-        for linea in lineas:
-            if linea.startswith('Nickname'):
-                identificador = linea.split(':',1)[1].strip()
-                break
-        tipo = 'cuenta'
-    else:
-        identificador = lineas[0].strip()
-        tipo = 'pack'
+        if tipo == 'cuenta':
+            m = re.search(r'====PRICE\s*([0-9]+)', update.message.text)
+            precio_usd = int(m.group(1)) if m else 0
+        else:
+            m = re.search(r'Price\s*:\s*([0-9]+)', update.message.text)
+            precio_usd = int(m.group(1)) if m else 0
 
-    # Obtener precio
-    precio_usd = 0
-    if tipo == 'cuenta':
-        m = re.search(r'====PRICE\s*([0-9]+)', update.message.text)
-        if m: precio_usd = int(m.group(1))
-    else:
-        m = re.search(r'Price\s*:\s*([0-9]+)', update.message.text)
-        if m: precio_usd = int(m.group(1))
+        precio_clp = precio_usd * 1000 + 20000
+        precio_usdt = precio_usd + 25
+        guardar_producto(identificador, texto_modificado, tipo, precio_clp, precio_usdt)
 
-    precio_clp = precio_usd * 1000 + 20000
-    precio_usdt = precio_usd + 25
-
-    # Guardar producto en cache
-    guardar_producto(identificador, texto_modificado, tipo, precio_clp, precio_usdt)
-
-    # Crear botón de compra
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton('🛒 Comprar', callback_data=f'comprar_{identificador}')]
-    ])
-
-    # Publicar en el canal
-    try:
-        await context.bot.send_message(
-            chat_id=TELEGRAM_CHANNEL_ID,
-            text=texto_modificado,
-            parse_mode='HTML',
-            reply_markup=keyboard
-        )
-        await update.message.reply_text('✅ Mensaje publicado correctamente en el canal.')
-    except Exception as e:
-        await update.message.reply_text(f'❌ Error al publicar en el canal: {e}')
-        logging.error(f"Error publicando mensaje en canal: {e}")
-
+        url_boton = f"https://t.me/{BOT_USERNAME}?start=buy_{identificador}"
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton('🛒 Comprar', url=url_boton)]
+        ])
+        await asyncio.sleep(1)
+        await context.bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=texto_modificado, parse_mode='HTML', reply_markup=keyboard)
+        await update.message.reply_text('Mensaje enviado al canal.')
 
 async def pago_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -246,19 +188,8 @@ async def pago_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not data:
         return
 
-    if data.startswith('comprar_'):
-        identificador = data[len('comprar_'):]
-        producto = obtener_producto(identificador)
-        if producto:
-            keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton('💳 Pagar con PayPal', callback_data=f'internacional_{identificador}')],
-                [InlineKeyboardButton('💵 Pagar con MercadoPago', callback_data=f'nacional_{identificador}')]
-            ])
-            await query.edit_message_text(
-                f"Has seleccionado el producto {identificador}.\n\nElige un método de pago:",
-                reply_markup=keyboard
-            )
-    elif data.startswith('nacional_'):
+    producto = None
+    if data.startswith('nacional_'):
         identificador = data[len('nacional_'):]
         producto = obtener_producto(identificador)
         if producto:
@@ -279,10 +210,8 @@ async def pago_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 mp_url = resp.json().get('init_point', 'https://www.mercadopago.cl')
             except Exception:
                 mp_url = 'https://www.mercadopago.cl'
-            await query.edit_message_text(
-                f"Para pagar con MercadoPago (CLP):\n\nMonto: ${producto['precio_clp']:,} CLP\n\n<a href='{mp_url}'>Pagar ahora</a>",
-                parse_mode='HTML'
-            )
+            await query.edit_message_text(f"Para pagar con MercadoPago (CLP):\n\nMonto: ${producto['precio_clp']:,} CLP\n\n<a href='{mp_url}'>Pagar ahora</a>", parse_mode='HTML')
+
     elif data.startswith('internacional_'):
         identificador = data[len('internacional_'):]
         producto = obtener_producto(identificador)
@@ -297,17 +226,29 @@ async def pago_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"&currency_code=USD"
                 f"&return={return_url}"
             )
-            await query.edit_message_text(
-                f"Para pagar con PayPal (USD):\n\nMonto: ${monto_paypal} USD\n<a href='{paypal_url}'>Pagar ahora</a>",
-                parse_mode='HTML'
-            )
+            await query.edit_message_text(f"Para pagar con PayPal (USD):\n\nMonto: ${monto_paypal} USD\n<a href='{paypal_url}'>Pagar ahora</a>", parse_mode='HTML')
 
 # -------------------------
-# Healthcheck para UptimeRobot
+# Endpoints para UptimeRobot y postpago
 # -------------------------
 async def healthcheck(request):
     return web.Response(text="OK")
 
+async def postpago(request):
+    identificador = request.match_info.get('identificador')
+    producto = obtener_producto(identificador)
+    if producto:
+        mensaje_instalacion = (
+            f"✅ Pago confirmado para {identificador}.\n\n"
+            f"📥 Pasos de instalación: <a href='https://juegosnintendoswitch.com/pages/instalacion'>Haz clic aquí</a>\n\n"
+            f"📞 Contacto:\n"
+            f"Telegram: @NintendoChile2\n"
+            f"WhatsApp: +56 9 1234 5678\n"
+            f"Instagram: @NintendoChile2"
+        )
+        bot = request.app['bot']
+        await bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=mensaje_instalacion, parse_mode='HTML')
+    return web.Response(text="OK")
 # -------------------------
 # Main
 # -------------------------
@@ -328,10 +269,13 @@ async def main():
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
 
-    # Iniciar polling de Telegram sin bloquear
-    asyncio.create_task(app.run_polling())
+    # Inicializar y arrancar el bot en modo polling (no bloqueante)
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling()
     logging.info(f"🚀 Bot y servidor corriendo en puerto {port}")
 
+    # Mantener el proceso vivo
     while True:
         await asyncio.sleep(3600)
 
@@ -339,10 +283,4 @@ async def main():
 # Entry point
 # -------------------------
 if __name__ == '__main__':
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    loop.create_task(main())
-    loop.run_forever()
+    asyncio.run(main())
