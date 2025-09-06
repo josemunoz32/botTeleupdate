@@ -219,7 +219,7 @@ async def reenviar_al_canal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         precio_clp = precio_usd * 1000 + 20000
         precio_usdt = precio_usd + 25
         guardar_producto(identificador, texto_modificado, tipo, precio_clp, precio_usdt)
-        # Botón con enlace al bot y parámetro de producto
+        # Botón con enlace al bot y parámetro de producto (no callback)
         url_boton = f"https://t.me/{BOT_USERNAME}?start=buy_{identificador}"
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton('🛒 Comprar', url=url_boton)]
