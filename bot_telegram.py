@@ -15,7 +15,7 @@ from telegram.ext import (
 from aiohttp import web
 
 # -------------------------
-# Configura logging para consola
+# Logging
 # -------------------------
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -137,7 +137,7 @@ def procesar_mensaje(mensaje):
         return mensaje_modificado
 
 # -------------------------
-# Handlers del bot
+# Handlers
 # -------------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
@@ -212,10 +212,15 @@ async def reenviar_al_canal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         precio_usdt = precio_usd + 25
         guardar_producto(identificador, texto_modificado, tipo, precio_clp, precio_usdt)
 
-        url_boton = f"https://t.me/{BOT_USERNAME}?start=buy_{identificador}"
-        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton('🛒 Comprar', url=url_boton)]])
-        await asyncio.sleep(1)
-        await context.bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=texto_modificado, parse_mode='HTML', reply_markup=keyboard)
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton('🛒 Comprar', callback_data=f'comprar_{identificador}')]
+        ])
+        await context.bot.send_message(
+            chat_id=TELEGRAM_CHANNEL_ID,
+            text=texto_modificado,
+            parse_mode='HTML',
+            reply_markup=keyboard
+        )
         await update.message.reply_text('Mensaje enviado al canal.')
 
 async def pago_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -225,8 +230,19 @@ async def pago_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not data:
         return
 
-    producto = None
-    if data.startswith('nacional_'):
+    if data.startswith('comprar_'):
+        identificador = data[len('comprar_'):]
+        producto = obtener_producto(identificador)
+        if producto:
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton('💳 Pagar con PayPal', callback_data=f'internacional_{identificador}')],
+                [InlineKeyboardButton('💵 Pagar con MercadoPago', callback_data=f'nacional_{identificador}')]
+            ])
+            await query.edit_message_text(
+                f"Has seleccionado el producto {identificador}.\n\nElige un método de pago:",
+                reply_markup=keyboard
+            )
+    elif data.startswith('nacional_'):
         identificador = data[len('nacional_'):]
         producto = obtener_producto(identificador)
         if producto:
@@ -247,8 +263,10 @@ async def pago_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 mp_url = resp.json().get('init_point', 'https://www.mercadopago.cl')
             except Exception:
                 mp_url = 'https://www.mercadopago.cl'
-            await query.edit_message_text(f"Para pagar con MercadoPago (CLP):\n\nMonto: ${producto['precio_clp']:,} CLP\n\n<a href='{mp_url}'>Pagar ahora</a>", parse_mode='HTML')
-
+            await query.edit_message_text(
+                f"Para pagar con MercadoPago (CLP):\n\nMonto: ${producto['precio_clp']:,} CLP\n\n<a href='{mp_url}'>Pagar ahora</a>",
+                parse_mode='HTML'
+            )
     elif data.startswith('internacional_'):
         identificador = data[len('internacional_'):]
         producto = obtener_producto(identificador)
@@ -263,10 +281,13 @@ async def pago_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"&currency_code=USD"
                 f"&return={return_url}"
             )
-            await query.edit_message_text(f"Para pagar con PayPal (USD):\n\nMonto: ${monto_paypal} USD\n<a href='{paypal_url}'>Pagar ahora</a>", parse_mode='HTML')
+            await query.edit_message_text(
+                f"Para pagar con PayPal (USD):\n\nMonto: ${monto_paypal} USD\n<a href='{paypal_url}'>Pagar ahora</a>",
+                parse_mode='HTML'
+            )
 
 # -------------------------
-# Endpoints para UptimeRobot
+# Healthcheck para UptimeRobot
 # -------------------------
 async def healthcheck(request):
     return web.Response(text="OK")
@@ -281,37 +302,31 @@ async def main():
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), reenviar_al_canal))
     app.add_handler(CallbackQueryHandler(pago_callback))
 
-    # Servidor web para UptimeRobot
+    # Servidor web aiohttp
     web_app = web.Application()
     web_app['bot'] = app.bot
     web_app.router.add_get("/healthcheck", healthcheck)
-
-    # Iniciar servidor aiohttp en background
     port = int(os.environ.get('PORT', 10000))
     runner = web.AppRunner(web_app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
 
-    # Iniciar polling de Telegram sin bloquear loop
+    # Iniciar polling de Telegram sin bloquear
     asyncio.create_task(app.run_polling())
-
     logging.info(f"🚀 Bot y servidor corriendo en puerto {port}")
 
     while True:
         await asyncio.sleep(3600)
 
+# -------------------------
+# Entry point
+# -------------------------
 if __name__ == '__main__':
-    import asyncio
-
     try:
         loop = asyncio.get_event_loop()
     except RuntimeError:
-        # Crear loop si no existe
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-
-    # Ejecutar main() como tarea, no con asyncio.run()
     loop.create_task(main())
     loop.run_forever()
-
