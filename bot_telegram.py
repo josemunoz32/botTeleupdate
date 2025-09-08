@@ -61,10 +61,8 @@ def procesar_mensaje(mensaje):
     DINERO = '💰'
     RELOJ = '⏰'
     SEPARADOR = '━━━━━━━━━━━━━━'
-
     lineas = mensaje.strip().split('\n')
     es_nickname = any('Nickname' in l for l in lineas)
-    
     if es_nickname:
         nickname = ''
         juegos = []
@@ -72,7 +70,7 @@ def procesar_mensaje(mensaje):
         en_transacciones = False
         for linea in lineas:
             if linea.startswith('Nickname'):
-                nickname = linea.split(':',1)[1].strip()
+                nickname = linea.split(':', 1)[1].strip()
             if 'Transaction' in linea:
                 en_transacciones = True
                 continue
@@ -93,10 +91,9 @@ def procesar_mensaje(mensaje):
             f"{CASA} <b>CUENTA NINTENDO</b>\n"
             f"👤 <b>Nickname:</b> <code>{nickname}</code>\n\n"
             f"{CONTROL} <b>JUEGOS INCLUIDOS</b>\n"
-            f"{SEPARADOR}\n"
-            + '\n'.join(juegos) + f"\n{SEPARADOR}\n\n"
+            f"{SEPARADOR}\n" + '\n'.join(juegos) + f"\n{SEPARADOR}\n\n"
             f"{DINERO} <b>PRECIO:</b>\n"
-            f"<b>{precio_clp:,} CLP</b> {BANDERA_CL}   <b>{precio_usdt}.00 USD</b> {USDT}\n"
+            f"<b>{precio_clp:,} CLP</b> {BANDERA_CL} <b>{precio_usdt}.00 USD</b> {USDT}\n"
             f"{RELOJ} <b>Disponible las 24 horas</b>\n"
             f"{PANDA} <b>CONTÁCTAME:</b> @NintendoChile2"
         )
@@ -127,10 +124,9 @@ def procesar_mensaje(mensaje):
         mensaje_modificado = (
             f"{CASA} <b>PACK #{codigo}</b>\n"
             f"{CONTROL} <b>JUEGOS INCLUIDOS</b>\n"
-            f"{SEPARADOR}\n"
-            + '\n'.join(juegos) + f"\n{SEPARADOR}\n\n"
+            f"{SEPARADOR}\n" + '\n'.join(juegos) + f"\n{SEPARADOR}\n\n"
             f"{DINERO} <b>PRECIO:</b>\n"
-            f"<b>{precio_clp:,} CLP</b> {BANDERA_CL}   <b>{precio_usdt}.00 USD</b> {USDT}\n"
+            f"<b>{precio_clp:,} CLP</b> {BANDERA_CL} <b>{precio_usdt}.00 USD</b> {USDT}\n"
             f"{RELOJ} <b>Disponible de 12:00 a 18:00 hrs</b>\n"
             f"{PANDA} <b>CONTÁCTAME:</b> @NintendoChile2"
         )
@@ -143,14 +139,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     if args and len(args) > 0:
         arg = args[0]
+        # Si viene desde el canal con buy_...
         if arg.startswith('buy_'):
             identificador = arg[len('buy_'):]
             producto = obtener_producto(identificador)
             if producto:
+                # Mostrar mensaje del producto en chat privado
                 await update.message.reply_text(
                     f"{producto['mensaje']}",
                     parse_mode='HTML'
                 )
+                # Mostrar botones de pago
                 keyboard = InlineKeyboardMarkup([
                     [InlineKeyboardButton('💳 Pagar con PayPal', callback_data=f'internacional_{identificador}')],
                     [InlineKeyboardButton('💵 Pagar con MercadoPago', callback_data=f'nacional_{identificador}')]
@@ -179,6 +178,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"{contactos}",
                     parse_mode='HTML'
                 )
+                # Notificar al admin
                 for admin_id in ADMIN_IDS:
                     await context.bot.send_message(
                         chat_id=admin_id,
@@ -200,7 +200,7 @@ async def reenviar_al_canal(update: Update, context: ContextTypes.DEFAULT_TYPE):
             identificador = ''
             for linea in lineas:
                 if linea.startswith('Nickname'):
-                    identificador = linea.split(':',1)[1].strip()
+                    identificador = linea.split(':', 1)[1].strip()
                     break
             tipo = 'cuenta'
         else:
@@ -213,21 +213,26 @@ async def reenviar_al_canal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             m = re.search(r'Price\s*:\s*([0-9]+)', update.message.text)
             precio_usd = int(m.group(1)) if m else 0
-
+            
         precio_clp = precio_usd * 1000 + 20000
         precio_usdt = precio_usd + 25
-        guardar_producto(identificador, texto_modificado, tipo, precio_clp, precio_usdt)
 
+        guardar_producto(identificador, texto_modificado, tipo, precio_clp, precio_usdt)
+        
+        # Botón que abre chat privado con el bot
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton('🛒 Comprar', url=f"https://t.me/{BOT_USERNAME}?start=buy_{identificador}")]
         ])
+        
+        # Publicar con retraso para evitar flood
         await context.bot.send_message(
             chat_id=TELEGRAM_CHANNEL_ID,
             text=texto_modificado,
             parse_mode='HTML',
             reply_markup=keyboard
         )
-        await asyncio.sleep(2)
+        await asyncio.sleep(2) # 🔹 Espera 2 segundos antes de publicar el siguiente pack
+        
         await update.message.reply_text('Mensaje enviado al canal.')
 
 async def pago_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -258,8 +263,11 @@ async def pago_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 mp_url = resp.json().get('init_point', 'https://www.mercadopago.cl')
             except Exception:
                 mp_url = 'https://www.mercadopago.cl'
-            await query.edit_message_text(f"Para pagar con MercadoPago (CLP):\n\nMonto: ${producto['precio_clp']:,} CLP\n\n<a href='{mp_url}'>Pagar ahora</a>", parse_mode='HTML')
-
+            
+            await query.edit_message_text(
+                f"Para pagar con MercadoPago (CLP):\n\nMonto: ${producto['precio_clp']:,} CLP\n\n<a href='{mp_url}'>Pagar ahora</a>",
+                parse_mode='HTML'
+            )
     elif data.startswith('internacional_'):
         identificador = data[len('internacional_'):]
         producto = obtener_producto(identificador)
@@ -274,10 +282,13 @@ async def pago_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"&currency_code=USD"
                 f"&return={return_url}"
             )
-            await query.edit_message_text(f"Para pagar con PayPal (USD):\n\nMonto: ${monto_paypal} USD\n<a href='{paypal_url}'>Pagar ahora</a>", parse_mode='HTML')
+            await query.edit_message_text(
+                f"Para pagar con PayPal (USD):\n\nMonto: ${monto_paypal} USD\n<a href='{paypal_url}'>Pagar ahora</a>",
+                parse_mode='HTML'
+            )
 
 # -------------------------
-# Endpoint para UptimeRobot
+# Endpoints para UptimeRobot y postpago
 # -------------------------
 async def healthcheck(request):
     return web.Response(text="OK")
@@ -286,36 +297,35 @@ async def healthcheck(request):
 # Main
 # -------------------------
 async def main():
-    port = int(os.environ.get('PORT', 10000))
-    webhook_url = f"https://{os.environ['RENDER_EXTERNAL_HOSTNAME']}/webhook"
+    # Crear app de Telegram
+    app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+    app.add_handler(CommandHandler('start', start))
+    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), reenviar_al_canal))
+    app.add_handler(CallbackQueryHandler(pago_callback))
 
-    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-
-    # Handlers
-    application.add_handler(CommandHandler('start', start))
-    application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), reenviar_al_canal))
-    application.add_handler(CallbackQueryHandler(pago_callback))
-
-    # Eliminar polling y activar webhook
-    await application.bot.delete_webhook()
-    await application.bot.set_webhook(webhook_url)
-
-    # Servidor aiohttp
+    # Servidor web aiohttp
     web_app = web.Application()
+    web_app['bot'] = app.bot
     web_app.router.add_get("/healthcheck", healthcheck)
-    web_app.router.add_post("/webhook", application.update_queue.put)
-
+    port = int(os.environ.get('PORT', 10000))
     runner = web.AppRunner(web_app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
 
-    logging.info(f"🚀 Bot y servidor corriendo en puerto {port}, usando Webhooks en {webhook_url}")
+    # Inicializar y arrancar el bot en modo polling
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling()
+    
+    logging.info(f"🚀 Bot y servidor corriendo en puerto {port}")
 
-    # Mantener app corriendo
-    await application.start()
-    await application.updater.start_polling()  # <-- ¡OJO! Ya no usamos polling real
-    await application.updater.wait()
+    # Mantener el proceso vivo
+    while True:
+        await asyncio.sleep(3600)
 
+# -------------------------
+# Entry point
+# -------------------------
 if __name__ == '__main__':
     asyncio.run(main())
