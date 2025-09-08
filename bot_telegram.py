@@ -285,33 +285,31 @@ async def healthcheck(request):
 # -------------------------
 # Main
 # -------------------------
-# -------------------------
-# Main
-# -------------------------
-async def main():
-    app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+def main():
+    app = ApplicationBuilder().token(os.environ["TELEGRAM_BOT_TOKEN"]).build()
     app.add_handler(CommandHandler('start', start))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), reenviar_al_canal))
     app.add_handler(CallbackQueryHandler(pago_callback))
 
     # Servidor web aiohttp
     web_app = web.Application()
-    web_app['bot'] = app.bot
     web_app.router.add_get("/healthcheck", healthcheck)
     port = int(os.environ.get('PORT', 10000))
+
+    loop = asyncio.get_event_loop()
+
     runner = web.AppRunner(web_app)
-    await runner.setup()
+    loop.run_until_complete(runner.setup())
     site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
+    loop.run_until_complete(site.start())
 
     logging.info(f"🚀 Bot y servidor corriendo en puerto {port}")
 
-    # Inicia el bot (polling)
-    await app.run_polling(close_loop=False)
+    # Aquí no usamos asyncio.run() ni await, dejamos que ptb maneje el loop
+    app.run_polling(close_loop=False)
 
 # -------------------------
 # Entry point
 # -------------------------
 if __name__ == '__main__':
-    asyncio.run(main())
-
+    main()
