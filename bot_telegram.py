@@ -285,6 +285,9 @@ async def healthcheck(request):
 # -------------------------
 # Main
 # -------------------------
+# -------------------------
+# Main
+# -------------------------
 async def main():
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler('start', start))
@@ -301,18 +304,14 @@ async def main():
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
 
-    # Inicializar y arrancar el bot
-    await app.initialize()
-    await app.start()
-    await app.updater.start_polling()
     logging.info(f"🚀 Bot y servidor corriendo en puerto {port}")
 
-    # Mantener la app viva
-    while True:
-        await asyncio.sleep(3600)
+    # Inicia el bot (polling)
+    await app.run_polling(close_loop=False)
 
 # -------------------------
 # Entry point
 # -------------------------
 if __name__ == '__main__':
     asyncio.run(main())
+
