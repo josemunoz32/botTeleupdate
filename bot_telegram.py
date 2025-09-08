@@ -143,17 +143,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     if args and len(args) > 0:
         arg = args[0]
-        # Si viene desde el canal con buy_...
         if arg.startswith('buy_'):
             identificador = arg[len('buy_'):]
             producto = obtener_producto(identificador)
             if producto:
-                # Mostrar mensaje del producto en chat privado
                 await update.message.reply_text(
                     f"{producto['mensaje']}",
                     parse_mode='HTML'
                 )
-                # Mostrar botones de pago
                 keyboard = InlineKeyboardMarkup([
                     [InlineKeyboardButton('💳 Pagar con PayPal', callback_data=f'internacional_{identificador}')],
                     [InlineKeyboardButton('💵 Pagar con MercadoPago', callback_data=f'nacional_{identificador}')]
@@ -182,17 +179,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"{contactos}",
                     parse_mode='HTML'
                 )
-                # Notificar al admin
                 for admin_id in ADMIN_IDS:
                     await context.bot.send_message(
                         chat_id=admin_id,
                         text=f"✅ El pack {identificador} ha sido comprado por @{update.message.from_user.username or update.message.from_user.full_name}"
                     )
             return
-
     await update.message.reply_text("✅ El bot está activo y funcionando correctamente.")
-
-import asyncio
 
 async def reenviar_al_canal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
@@ -225,21 +218,17 @@ async def reenviar_al_canal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         precio_usdt = precio_usd + 25
         guardar_producto(identificador, texto_modificado, tipo, precio_clp, precio_usdt)
 
-        # Botón que abre chat privado con el bot
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton('🛒 Comprar', url=f"https://t.me/{BOT_USERNAME}?start=buy_{identificador}")]
         ])
-
-        # Publicar con retraso para evitar flood
         await context.bot.send_message(
             chat_id=TELEGRAM_CHANNEL_ID,
             text=texto_modificado,
             parse_mode='HTML',
             reply_markup=keyboard
         )
-        await asyncio.sleep(2)  # 🔹 Espera 2 segundos antes de publicar el siguiente pack
+        await asyncio.sleep(2)
         await update.message.reply_text('Mensaje enviado al canal.')
-
 
 async def pago_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -288,7 +277,7 @@ async def pago_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(f"Para pagar con PayPal (USD):\n\nMonto: ${monto_paypal} USD\n<a href='{paypal_url}'>Pagar ahora</a>", parse_mode='HTML')
 
 # -------------------------
-# Endpoints para UptimeRobot y postpago
+# Endpoint para UptimeRobot
 # -------------------------
 async def healthcheck(request):
     return web.Response(text="OK")
@@ -297,7 +286,6 @@ async def healthcheck(request):
 # Main
 # -------------------------
 async def main():
-    # Crear app de Telegram
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler('start', start))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), reenviar_al_canal))
@@ -313,13 +301,13 @@ async def main():
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
 
-    # Inicializar y arrancar el bot en modo polling
+    # Inicializar y arrancar el bot
     await app.initialize()
     await app.start()
     await app.updater.start_polling()
     logging.info(f"🚀 Bot y servidor corriendo en puerto {port}")
 
-    # Mantener el proceso vivo
+    # Mantener la app viva
     while True:
         await asyncio.sleep(3600)
 
