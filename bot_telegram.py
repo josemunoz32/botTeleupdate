@@ -285,31 +285,37 @@ async def healthcheck(request):
 # -------------------------
 # Main
 # -------------------------
-def main():
-    app = ApplicationBuilder().token(os.environ["TELEGRAM_BOT_TOKEN"]).build()
-    app.add_handler(CommandHandler('start', start))
-    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), reenviar_al_canal))
-    app.add_handler(CallbackQueryHandler(pago_callback))
+async def main():
+    port = int(os.environ.get('PORT', 10000))
+    webhook_url = f"https://{os.environ['RENDER_EXTERNAL_HOSTNAME']}/webhook"
 
-    # Servidor web aiohttp
+    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+
+    # Handlers
+    application.add_handler(CommandHandler('start', start))
+    application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), reenviar_al_canal))
+    application.add_handler(CallbackQueryHandler(pago_callback))
+
+    # Eliminar polling y activar webhook
+    await application.bot.delete_webhook()
+    await application.bot.set_webhook(webhook_url)
+
+    # Servidor aiohttp
     web_app = web.Application()
     web_app.router.add_get("/healthcheck", healthcheck)
-    port = int(os.environ.get('PORT', 10000))
-
-    loop = asyncio.get_event_loop()
+    web_app.router.add_post("/webhook", application.update_queue.put)
 
     runner = web.AppRunner(web_app)
-    loop.run_until_complete(runner.setup())
+    await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", port)
-    loop.run_until_complete(site.start())
+    await site.start()
 
-    logging.info(f"🚀 Bot y servidor corriendo en puerto {port}")
+    logging.info(f"🚀 Bot y servidor corriendo en puerto {port}, usando Webhooks en {webhook_url}")
 
-    # Aquí no usamos asyncio.run() ni await, dejamos que ptb maneje el loop
-    app.run_polling(close_loop=False)
+    # Mantener app corriendo
+    await application.start()
+    await application.updater.start_polling()  # <-- ¡OJO! Ya no usamos polling real
+    await application.updater.wait()
 
-# -------------------------
-# Entry point
-# -------------------------
 if __name__ == '__main__':
-    main()
+    asyncio.run(main())
