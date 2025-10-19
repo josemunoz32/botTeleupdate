@@ -1,4 +1,5 @@
 python-telegram-bot
 requests
 aiohttp
+python-dotenv
 ## version2.0
