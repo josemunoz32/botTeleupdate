@@ -188,8 +188,8 @@ def procesar_mensaje(mensaje):
                 juegos.append(f"{DADO} {juego}")
         if not nickname or not juegos or not precio_usd:
             return None
-        precio_clp = precio_usd * 1000 + 20000
-        precio_usdt = precio_usd + 25
+        precio_clp = precio_usd * 1000 + 15000
+        precio_usdt = precio_usd + 20
         mensaje_modificado = (
             f"{CASA} <b>CUENTA NINTENDO</b>\n"
             f"👤 <b>Nickname:</b> <code>{nickname}</code>\n\n"
@@ -230,8 +230,8 @@ def procesar_mensaje(mensaje):
                 break
         if not codigo or not juegos or not precio_usd:
             return None
-        precio_clp = precio_usd * 1000 + 20000
-        precio_usdt = precio_usd + 25
+        precio_clp = precio_usd * 1000 + 15000
+        precio_usdt = precio_usd + 20
         mensaje_modificado = (
             f"{CASA} <b>PACK #{codigo}</b>\n"
             f"{CONTROL} <b>JUEGOS INCLUIDOS</b>\n"
