@@ -16,6 +16,7 @@ from telegram.ext import (
     CallbackQueryHandler,
     ApplicationBuilder,
 )
+from telegram.error import Conflict
 from aiohttp import web
 
 load_dotenv()
@@ -122,6 +123,9 @@ BOT_USERNAME = os.environ['BOT_USERNAME']
 TELEGRAM_BOT_TOKEN = os.environ['TELEGRAM_BOT_TOKEN']
 TELEGRAM_CHANNEL_ID = os.environ['TELEGRAM_CHANNEL_ID']
 ADMIN_IDS = [int(i) for i in os.environ['ADMIN_IDS'].split(',')]
+# Optional: if you set TELEGRAM_WEBHOOK_URL the bot will use webhook mode instead of polling.
+# Example: TELEGRAM_WEBHOOK_URL=https://your-app.onrender.com
+TELEGRAM_WEBHOOK_URL = os.environ.get('TELEGRAM_WEBHOOK_URL')
 
 PRODUCTOS_CACHE = {}
 cola_envio = Queue()  # Cola asincrónica para enviar mensajes al canal
@@ -331,8 +335,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     [InlineKeyboardButton('💸 Ver datos para Transferencia Bancaria', callback_data=f'transferencia_{identificador}')],
                     [InlineKeyboardButton('❓ Ayuda', callback_data='ayuda')]
                 ])
+                # Fixed truncated message and closed the string properly
                 await update.message.reply_text(
-                    "<b>¿Cómo continuar?</b>\n\n1️⃣ Pulsa <b>💸 Ver datos para Transferencia Bancaria</b> para ver los datos y realizar el pago.\n2️⃣ Una vez pagado, envía el comprobante aquí mismo.\n3️⃣ Si tienes dudas, pulsa <b>❓ Ayuda</b>.",
+                    "<b>¿Cómo continuar?</b>\n\n1️⃣ Pulsa <b>💸 Ver datos para Transferencia Bancaria</b> para ver los datos y realizar el pago.\n2️⃣ Una vez pagado, envía el comprobante aquí (foto o archivo).\n\nUn administrador verificará tu pago y te contactará.",
                     parse_mode='HTML',
                     reply_markup=keyboard
                 )
@@ -395,6 +400,7 @@ async def main():
     # Servidor web
     web_app = web.Application()
     web_app['bot'] = app.bot
+    web_app['app'] = app
     web_app.router.add_get("/healthcheck", healthcheck)
 
     port = int(os.environ.get('PORT', 0))
@@ -410,9 +416,45 @@ async def main():
     except Exception:
         pass
 
+    # Initialize and start the Application
     await app.initialize()
     await app.start()
-    await app.updater.start_polling()
+
+    # Choose between webhook mode (recommended for hosted services like Render)
+    # or fallback to polling mode. To enable webhook mode, set TELEGRAM_WEBHOOK_URL env var.
+    if TELEGRAM_WEBHOOK_URL:
+        # Register webhook on Telegram and expose an endpoint for Telegram to POST updates to.
+        webhook_path = f"/webhook/{TELEGRAM_BOT_TOKEN}"
+        webhook_full = TELEGRAM_WEBHOOK_URL.rstrip('/') + webhook_path
+
+        # webhook handler receives raw updates and puts them into the app's update queue
+        async def telegram_webhook(request):
+            try:
+                data = await request.json()
+            except Exception:
+                return web.Response(status=400, text="Invalid JSON")
+            update = Update.de_json(data, app.bot)
+            await app.update_queue.put(update)
+            return web.Response(text="OK")
+
+        web_app.router.add_post(webhook_path, telegram_webhook)
+
+        try:
+            await app.bot.set_webhook(webhook_full)
+            logging.info("✅ Webhook registered at %s", webhook_full)
+        except Exception as e:
+            logging.error("❌ Failed to set webhook: %s", e)
+    else:
+        # Polling fallback. If Conflict occurs it means SOMEWHERE else a getUpdates
+        # client is active for this token (stop other instances or use webhook).
+        try:
+            await app.updater.start_polling()
+            logging.info("✅ Polling started")
+        except Conflict:
+            logging.error("❌ Conflict: another getUpdates request is running. Polling disabled. Consider using webhook mode or stopping the other instance.")
+        except Exception as e:
+            logging.error("❌ Failed to start polling: %s", e)
+
     logging.info(f"🚀 Bot y servidor corriendo en puerto {port}")
 
     # 🔄 Lanza tarea para procesar la cola de mensajes
